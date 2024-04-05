@@ -29,26 +29,21 @@ import java.sql.SQLException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import javax.sql.DataSource;
-import jakarta.ws.rs.core.MultivaluedMap;
-import jakarta.ws.rs.core.Response;
+import javax.ws.rs.core.MultivaluedMap;
+import javax.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
-
 import org.apache.fineract.infrastructure.core.api.ApiParameterHelper;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenantConnection;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
-import org.apache.fineract.infrastructure.core.service.database.DatabasePasswordEncryptor;
-import org.apache.fineract.infrastructure.dataqueries.data.ReportExportType;
 import org.apache.fineract.infrastructure.report.annotation.ReportService;
 import org.apache.fineract.infrastructure.security.constants.TenantConstants;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-
 import org.pentaho.reporting.engine.classic.core.ClassicEngineBoot;
 import org.pentaho.reporting.engine.classic.core.CompoundDataFactory;
 import org.pentaho.reporting.engine.classic.core.DataFactory;
@@ -78,7 +73,6 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
 
     private static final Logger logger = LoggerFactory.getLogger(PentahoReportingProcessServiceImpl.class);
     private final String mifosBaseDir = System.getProperty("user.home") + File.separator + ".mifosx";
-    private final DatabasePasswordEncryptor databasePasswordEncryptor;
 
     @Value("${FINERACT_PENTAHO_REPORTS_PATH}")
     private String fineractPentahoBaseDir;
@@ -97,11 +91,10 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
 
     @Autowired
     public PentahoReportingProcessServiceImpl(final PlatformSecurityContext context,
-            final @Qualifier("hikariTenantDataSource") DataSource tenantDataSource, DatabasePasswordEncryptor databasePasswordEncryptor) {
+            final @Qualifier("hikariTenantDataSource") DataSource tenantDataSource) {
         ClassicEngineBoot.getInstance().start();
         this.tenantDataSource = tenantDataSource;
         this.context = context;
-        this.databasePasswordEncryptor = databasePasswordEncryptor ;
     }
 
     @Override
@@ -195,7 +188,7 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
             final var rptParamValues = report.getParameterValues();
             final var paramsDefinition = report.getParameterDefinition();
 
-            //only allow integer, long, date and string parameter types and assume all mandatory - could go more
+            // only allow integer, long, date and string parameter types and assume all mandatory - could go more
             // detailed like Pawel did in Mifos later and could match incoming and Pentaho parameters better...
             // currently assuming they come in ok... and if not an error
             for (final ParameterDefinitionEntry paramDefEntry : paramsDefinition.getParameterDefinitions()) {
@@ -230,19 +223,19 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
                         java.sql.Date mySQLDate = new java.sql.Date(millis);                        
                         rptParamValues.put(paramName, mySQLDate);                        
                     } else {
-                        logger.debug("ParamName Unknown: {}", paramName);
-                        logger.debug("ParamValue Unknown: {}", pValue.toString());
+                        logger.warn("ParamName Unknown: {}", paramName);
+                        logger.warn("ParamValue Unknown: {}", pValue.toString());
                         rptParamValues.put(paramName, pValue);
                     }
                 }
             }
 
-            //Tenant database name and current user's office hierarchy
+            // Tenant database name and current user's office hierarchy
             // passed as parameters to allow multitenant Pentaho reporting
             // and data scoping
             final var tenant = ThreadLocalContextUtil.getTenant();
-            final var tenantConnection = tenant.getConnection();            
-            String protocol = toProtocol(this.tenantDataSource);            
+            final var tenantConnection = tenant.getConnection();
+            String protocol = toProtocol(this.tenantDataSource);
             Environment environment = contextVar.getEnvironment();
             String tenantUrl = toJdbcUrl(protocol, tenantConnection.getSchemaServer(), tenantConnection.getSchemaServerPort(),
                     tenantConnection.getSchemaName(), tenantConnection.getSchemaConnectionParameters());
@@ -259,18 +252,17 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
 
             rptParamValues.put("userid", userid);
 
-            rptParamValues.put("tenantUrl", tenantUrl.trim());
-            
+            rptParamValues.put("tenantUrl", tenantUrl);
             if (tenantConnection.getSchemaUsername().equalsIgnoreCase("") || tenantConnection.getSchemaUsername() == null) {
                 rptParamValues.put("username", environment.getProperty("FINERACT_DEFAULT_TENANTDB_UID"));
             } else {
-                rptParamValues.put("username", tenantConnection.getSchemaUsername().trim());
+                rptParamValues.put("username", tenantConnection.getSchemaUsername());
             }
 
-            if (tenantConnection.getSchemaPassword().equalsIgnoreCase("") || tenantConnection.getSchemaPassword() == null) {                
+            if (tenantConnection.getSchemaPassword().equalsIgnoreCase("") || tenantConnection.getSchemaPassword() == null) {
                 rptParamValues.put("password", environment.getProperty("FINERACT_DEFAULT_TENANTDB_PWD"));
             } else {
-                rptParamValues.put("password", databasePasswordEncryptor.decrypt(tenantConnection.getSchemaPassword()).trim()); 
+                rptParamValues.put("password", tenantConnection.getSchemaPassword());
             }
 
         } catch (Throwable t) {
@@ -317,7 +309,7 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
             connectionProvider.setUrl(getTenantUrl());
             connectionProvider.setProperty("user", tenantConnection.getSchemaUsername());
             logger.debug("{}", tenantConnection.getSchemaUsername());
-            connectionProvider.setProperty("password", databasePasswordEncryptor.decrypt(tenantConnection.getSchemaPassword()).trim());
+            connectionProvider.setProperty("password", tenantConnection.getSchemaPassword());
             sqlReportDataFactory.setConnectionProvider(connectionProvider);
         }
     }
@@ -331,7 +323,7 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
         String schemaPort = tenantConnection.getSchemaServerPort();
         String schemaName = tenantConnection.getSchemaName();
         String schemaUsername = tenantConnection.getSchemaUsername();
-        String schemaPassword = tenantConnection.getSchemaPassword();        
+        String schemaPassword = tenantConnection.getSchemaPassword();
         String schemaConnectionParameters = tenantConnection.getSchemaConnectionParameters();
         // Properties to ReadOnly case
         if (fineractProperties.getMode().isReadOnlyMode()) {
@@ -363,10 +355,5 @@ public class PentahoReportingProcessServiceImpl implements ReportingProcessServi
             return defaultValue;
         }
         return applicationContext.getEnvironment().getProperty(propertyName, defaultValue);
-    }
-
-    @Override
-    public List<ReportExportType> getAvailableExportTargets() {
-        throw new UnsupportedOperationException("Not supported yet."); 
     }
 }
